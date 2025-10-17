@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Camera, Wine, BookOpen, Home, Upload, X } from 'lucide-react';
+import { Camera, Wine, BookOpen, Upload, X } from 'lucide-react';
 
 const WineClubApp = () => {
   const [view, setView] = useState('home');
