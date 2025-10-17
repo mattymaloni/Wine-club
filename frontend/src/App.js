@@ -71,7 +71,7 @@ const WineClubApp = () => {
       formData.append('image', file);
       
       // Call your backend API
-      const response = await fetch('https://pastry-art-wine-club.onrender.com', {
+      const response = await fetch('https://pastry-art-wine-club.onrender.com/analyze-wine', {
         method: 'POST',
         body: formData,
       });
