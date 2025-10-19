@@ -1,5 +1,11 @@
-import React, { useState } from 'react';
-import { Camera, Wine, BookOpen, Upload, X } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Camera, Wine, BookOpen, Upload, X, LogOut } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+
+// TODO: Replace these with your actual Supabase credentials
+const supabaseUrl = 'https://oieuxjexqntyekhdzmlj.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pZXV4amV4cW50eWVraGR6bWxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA4NjUxMjAsImV4cCI6MjA3NjQ0MTEyMH0.ddqdlHM9Seoz4Ocvl47a9PMgpUV5DyJ-w3ix-RRLNqA';
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const WineClubApp = () => {
   const [view, setView] = useState('home');
@@ -7,44 +13,106 @@ const WineClubApp = () => {
   const [analyzing, setAnalyzing] = useState(false);
   const [wineResult, setWineResult] = useState(null);
   const [myCollection, setMyCollection] = useState([]);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [authError, setAuthError] = useState('');
 
-  // Sample Frank's notes database
-  const franksNotes = {
-    'caymus': {
-      name: 'Caymus Cabernet Sauvignon',
-      varietal: 'Cabernet Sauvignon',
-      region: 'Napa Valley, California',
-      notes: 'Rich and bold with dark fruit flavors. Frank says: "This is a crowd-pleaser! Pair it with a good ribeye. The 2019 vintage is drinking beautifully right now."',
-      rating: '4.5/5'
-    },
-    'opus one': {
-      name: 'Opus One',
-      varietal: 'Bordeaux Blend',
-      region: 'Napa Valley, California',
-      notes: 'Elegant and structured with layers of complexity. Frank says: "Worth every penny. Decant for at least an hour. This is special occasion wine that will age gracefully for another decade."',
-      rating: '5/5'
-    },
-    'silver oak': {
-      name: 'Silver Oak Cabernet Sauvignon',
-      varietal: 'Cabernet Sauvignon',
-      region: 'Napa Valley, California',
-      notes: 'Smooth with notes of vanilla and coconut from American oak. Frank says: "Great for newcomers to Napa Cab. The Alexander Valley version offers excellent value."',
-      rating: '4/5'
-    },
-    'stags leap': {
-      name: "Stag's Leap Wine Cellars",
-      varietal: 'Cabernet Sauvignon',
-      region: 'Napa Valley, California',
-      notes: 'Refined tannins with blackberry and cassis. Frank says: "The Fay Vineyard is legendary. This beat French wines in the Judgment of Paris!"',
-      rating: '4.5/5'
-    },
-    'default': {
-      name: 'Wine Identified',
-      varietal: 'Various',
-      region: 'Various',
-      notes: 'Frank says: "I haven\'t tasted this one yet, but I\'d love to add it to my notes! Bring a bottle to the next meeting."',
-      rating: 'TBD'
+  useEffect(() => {
+    checkUser();
+    
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        loadUserCollection(session.user.id);
+      }
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  const checkUser = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        await loadUserCollection(session.user.id);
+      }
+    } catch (error) {
+      console.error('Error checking user:', error);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const loadUserCollection = async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_collections')
+        .select('*')
+        .eq('user_id', userId)
+        .order('date_added', { ascending: false });
+
+      if (error) throw error;
+      setMyCollection(data || []);
+    } catch (error) {
+      console.error('Error loading collection:', error);
+    }
+  };
+
+  const handleSignUp = useCallback(async () => {
+    setAuthError('');
+    
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: name
+          }
+        }
+      });
+
+      if (error) throw error;
+      
+      if (data?.user) {
+        alert('Account created! You can now sign in.');
+        setIsSignUp(false);
+      }
+    } catch (error) {
+      setAuthError(error.message);
+    }
+  }, [email, password, name]);
+
+  const handleSignIn = useCallback(async () => {
+    setAuthError('');
+    
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+      
+      setView('home');
+    } catch (error) {
+      setAuthError(error.message);
+    }
+  }, [email, password]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setMyCollection([]);
+    setView('auth');
   };
 
   const handleImageUpload = (e) => {
@@ -55,8 +123,6 @@ const WineClubApp = () => {
         setUploadedImage(reader.result);
       };
       reader.readAsDataURL(file);
-      
-      // Send actual file to backend
       analyzeWine(file);
     }
   };
@@ -66,11 +132,9 @@ const WineClubApp = () => {
     setView('result');
     
     try {
-      // Create form data to send image to backend
       const formData = new FormData();
       formData.append('image', file);
       
-      // Call your backend API
       const response = await fetch('https://pastry-art-wine-club.onrender.com/analyze-wine', {
         method: 'POST',
         body: formData,
@@ -78,18 +142,12 @@ const WineClubApp = () => {
       
       const aiResult = await response.json();
       
-      // Check if we have Frank's notes for this wine
-      const wineName = aiResult.name.toLowerCase();
-      let franksNote = null;
+      const { data: franksNote } = await supabase
+        .from('franks_notes')
+        .select('*')
+        .ilike('wine_name', `%${aiResult.name}%`)
+        .single();
       
-      for (let key in franksNotes) {
-        if (wineName.includes(key)) {
-          franksNote = franksNotes[key];
-          break;
-        }
-      }
-      
-      // Combine AI result with Frank's notes if available
       const finalResult = {
         name: aiResult.name,
         varietal: aiResult.varietal || 'Unknown',
@@ -117,22 +175,140 @@ const WineClubApp = () => {
     }
   };
 
-  const addToCollection = () => {
-    if (wineResult && !myCollection.find(w => w.name === wineResult.name)) {
-      setMyCollection([...myCollection, { ...wineResult, dateAdded: new Date().toLocaleDateString() }]);
+  const addToCollection = async () => {
+    if (!wineResult || !user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('user_collections')
+        .insert([
+          {
+            user_id: user.id,
+            wine_name: wineResult.name,
+            varietal: wineResult.varietal,
+            region: wineResult.region,
+            vintage: wineResult.vintage,
+            personal_notes: ''
+          }
+        ])
+        .select();
+
+      if (error) throw error;
+      
+      await loadUserCollection(user.id);
+      alert('Wine added to your collection!');
+    } catch (error) {
+      console.error('Error adding to collection:', error);
+      alert('Error adding wine to collection');
     }
   };
 
-  const removeFromCollection = (wineName) => {
-    setMyCollection(myCollection.filter(w => w.name !== wineName));
+  const removeFromCollection = async (wineId) => {
+    try {
+      const { error } = await supabase
+        .from('user_collections')
+        .delete()
+        .eq('id', wineId);
+
+      if (error) throw error;
+      
+      await loadUserCollection(user.id);
+    } catch (error) {
+      console.error('Error removing wine:', error);
+    }
   };
+
+  const AuthView = () => (
+    <div className="min-h-screen bg-gradient-to-br from-red-900 via-red-800 to-red-900 text-white p-6 flex items-center justify-center">
+      <div className="max-w-md w-full">
+        <div className="text-center mb-8">
+          <Wine className="w-16 h-16 mx-auto mb-4" />
+          <h1 className="text-3xl font-bold mb-2">Wine Club</h1>
+          <p className="text-red-200">Sign in to access your collection</p>
+        </div>
+
+        <div className="bg-white text-red-900 rounded-lg p-6">
+          <div className="space-y-4">
+            {isSignUp && (
+              <div>
+                <label className="block text-sm font-semibold mb-2">Name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full p-3 border border-red-200 rounded-lg"
+                />
+              </div>
+            )}
+            
+            <div>
+              <label className="block text-sm font-semibold mb-2">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full p-3 border border-red-200 rounded-lg"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-2">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full p-3 border border-red-200 rounded-lg"
+              />
+            </div>
+
+            {authError && (
+              <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                {authError}
+              </div>
+            )}
+
+            <button
+              onClick={isSignUp ? handleSignUp : handleSignIn}
+              className="w-full bg-red-700 text-white py-3 rounded-lg font-semibold hover:bg-red-600 transition"
+            >
+              {isSignUp ? 'Sign Up' : 'Sign In'}
+            </button>
+
+            <button
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setAuthError('');
+              }}
+              className="w-full text-red-700 text-sm hover:underline"
+            >
+              {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   const HomeView = () => (
     <div className="min-h-screen bg-gradient-to-br from-red-900 via-red-800 to-red-900 text-white p-6">
       <div className="max-w-md mx-auto">
-        <div className="text-center mb-8 pt-8">
+        <div className="flex justify-between items-center mb-8 pt-4">
+          <div>
+            <h1 className="text-2xl font-bold">Welcome!</h1>
+            <p className="text-red-200 text-sm">{user?.email}</p>
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="bg-red-700 px-4 py-2 rounded-lg hover:bg-red-600 transition flex items-center"
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out
+          </button>
+        </div>
+
+        <div className="text-center mb-8">
           <Wine className="w-16 h-16 mx-auto mb-4" />
-          <h1 className="text-3xl font-bold mb-2">Wine Club</h1>
+          <h2 className="text-3xl font-bold mb-2">Wine Club</h2>
           <p className="text-red-200">Featuring Frank's Expert Notes</p>
         </div>
 
@@ -213,6 +389,9 @@ const WineClubApp = () => {
                 <span className="font-semibold">Region:</span> {wineResult.region}
               </div>
               <div>
+                <span className="font-semibold">Vintage:</span> {wineResult.vintage}
+              </div>
+              <div>
                 <span className="font-semibold">Frank's Rating:</span> {wineResult.rating}
               </div>
             </div>
@@ -271,20 +450,22 @@ const WineClubApp = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {myCollection.map((wine, idx) => (
-              <div key={idx} className="bg-white text-red-900 rounded-lg p-4">
+            {myCollection.map((wine) => (
+              <div key={wine.id} className="bg-white text-red-900 rounded-lg p-4">
                 <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-bold text-lg">{wine.name}</h3>
+                  <h3 className="font-bold text-lg">{wine.wine_name}</h3>
                   <button
-                    onClick={() => removeFromCollection(wine.name)}
+                    onClick={() => removeFromCollection(wine.id)}
                     className="text-red-600 hover:text-red-800"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
                 <p className="text-sm text-red-700 mb-1">{wine.varietal} • {wine.region}</p>
-                <p className="text-sm text-red-600">Added: {wine.dateAdded}</p>
-                <p className="text-sm text-red-700 mt-2 italic">Rating: {wine.rating}</p>
+                {wine.vintage && wine.vintage !== 'N/A' && (
+                  <p className="text-sm text-red-600">Vintage: {wine.vintage}</p>
+                )}
+                <p className="text-sm text-red-600">Added: {new Date(wine.date_added).toLocaleDateString()}</p>
               </div>
             ))}
           </div>
@@ -293,11 +474,92 @@ const WineClubApp = () => {
     </div>
   );
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-red-900 via-red-800 to-red-900 text-white flex items-center justify-center">
+        <Wine className="w-16 h-16 animate-pulse" />
+      </div>
+    );
+  }
+
   return (
     <>
-      {view === 'home' && <HomeView />}
-      {view === 'result' && <ResultView />}
-      {view === 'collection' && <CollectionView />}
+      {!user ? (
+        <div className="min-h-screen bg-gradient-to-br from-red-900 via-red-800 to-red-900 text-white p-6 flex items-center justify-center">
+          <div className="max-w-md w-full">
+            <div className="text-center mb-8">
+              <Wine className="w-16 h-16 mx-auto mb-4" />
+              <h1 className="text-3xl font-bold mb-2">Wine Club</h1>
+              <p className="text-red-200">Sign in to access your collection</p>
+            </div>
+
+            <div className="bg-white text-red-900 rounded-lg p-6">
+              <div className="space-y-4">
+                {isSignUp && (
+                  <div>
+                    <label className="block text-sm font-semibold mb-2">Name</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full p-3 border border-red-200 rounded-lg"
+                    />
+                  </div>
+                )}
+                
+                <div>
+                  <label className="block text-sm font-semibold mb-2">Email</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full p-3 border border-red-200 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold mb-2">Password</label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full p-3 border border-red-200 rounded-lg"
+                  />
+                </div>
+
+                {authError && (
+                  <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                    {authError}
+                  </div>
+                )}
+
+                <button
+                  onClick={isSignUp ? handleSignUp : handleSignIn}
+                  className="w-full bg-red-700 text-white py-3 rounded-lg font-semibold hover:bg-red-600 transition"
+                >
+                  {isSignUp ? 'Sign Up' : 'Sign In'}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIsSignUp(!isSignUp);
+                    setAuthError('');
+                  }}
+                  className="w-full text-red-700 text-sm hover:underline"
+                >
+                  {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {view === 'home' && <HomeView />}
+          {view === 'result' && <ResultView />}
+          {view === 'collection' && <CollectionView />}
+        </>
+      )}
     </>
   );
 };
