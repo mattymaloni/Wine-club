@@ -23,8 +23,23 @@ const WineClubApp = () => {
   const [authError, setAuthError] = useState('');
 
   useEffect(() => {
-    checkUser();
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await loadUserCollection(session.user.id);
+        }
+      } catch (error) {
+        console.error('Error checking user:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
     
+    initAuth();
+    
+    // Listen for auth changes
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
