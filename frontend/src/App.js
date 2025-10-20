@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Camera, Wine, BookOpen, Upload, X, LogOut } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 // TODO: Replace these with your actual Supabase credentials
-const supabaseUrl = 'https://oieuxjexqntyekhdzmlj.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9pZXV4amV4cW50eWVraGR6bWxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA4NjUxMjAsImV4cCI6MjA3NjQ0MTEyMH0.ddqdlHM9Seoz4Ocvl47a9PMgpUV5DyJ-w3ix-RRLNqA';
+const supabaseUrl = 'https://YOUR-PROJECT.supabase.co';
+const supabaseAnonKey = 'YOUR-ANON-KEY-HERE';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const WineClubApp = () => {
@@ -37,20 +37,6 @@ const WineClubApp = () => {
     };
   }, []);
 
-  const checkUser = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await loadUserCollection(session.user.id);
-      }
-    } catch (error) {
-      console.error('Error checking user:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const loadUserCollection = async (userId) => {
     try {
       const { data, error } = await supabase
@@ -70,7 +56,7 @@ const WineClubApp = () => {
     setAuthError('');
     
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -82,10 +68,8 @@ const WineClubApp = () => {
 
       if (error) throw error;
       
-      if (data?.user) {
-        alert('Account created! You can now sign in.');
-        setIsSignUp(false);
-      }
+      alert('Account created! You can now sign in.');
+      setIsSignUp(false);
     } catch (error) {
       setAuthError(error.message);
     }
@@ -95,7 +79,7 @@ const WineClubApp = () => {
     setAuthError('');
     
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -179,7 +163,7 @@ const WineClubApp = () => {
     if (!wineResult || !user) return;
     
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('user_collections')
         .insert([
           {
