@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { RadarChart } from 'react-native-chart-kit';
+import Svg, { Polygon, Circle, Line, Text as SvgText } from 'react-native-svg';
 import { Dimensions } from 'react-native';
 import { 
   View, 
@@ -16,6 +16,153 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from './supabaseClient';
 
+// Component to render rating dots - MUST be outside App component
+const RatingDots = ({ rating, maxRating = 5 }) => {
+  return (
+    <View style={styles.ratingDotsContainer}>
+      {[...Array(maxRating)].map((_, index) => (
+        <View
+          key={index}
+          style={[
+            styles.ratingDot,
+            index < rating ? styles.ratingDotFilled : styles.ratingDotEmpty
+          ]}
+        />
+      ))}
+    </View>
+  );
+};
+
+// Custom Radar Chart Component using SVG
+const CustomRadarChart = ({ data, size = 250 }) => {
+  const labels = ['Potency', 'Acidity', 'Sweetness', 'Tannins', 'Fruitiness'];
+  const values = [data.potency, data.acidity, data.sweetness, data.tannins, data.fruitiness];
+  
+  const centerX = size / 2;
+  const centerY = size / 2;
+  const maxRadius = size * 0.32;
+  
+  // Calculate pentagon vertices for a given radius
+  const getPentagonPoints = (radius) => {
+    return labels.map((_, index) => {
+      const angle = (index * 72 - 90) * (Math.PI / 180);
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+      return `${x},${y}`;
+    }).join(' ');
+  };
+  
+  // Calculate data polygon points
+  const getDataPoints = () => {
+    return values.map((value, index) => {
+      const angle = (index * 72 - 90) * (Math.PI / 180);
+      const radius = (value / 5) * maxRadius;
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+      return `${x},${y}`;
+    }).join(' ');
+  };
+  
+  // Calculate label positions
+  const getLabelPosition = (index) => {
+    const angle = (index * 72 - 90) * (Math.PI / 180);
+    const distance = maxRadius * 1.15;
+    const x = centerX + distance * Math.cos(angle);
+    const y = centerY + distance * Math.sin(angle);
+    return { x, y };
+  };
+  
+  // Calculate vertex positions for circles
+  const getVertexPositions = () => {
+    return values.map((value, index) => {
+      const angle = (index * 72 - 90) * (Math.PI / 180);
+      const radius = (value / 5) * maxRadius;
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+      return { x, y };
+    });
+  };
+  
+  const vertexPositions = getVertexPositions();
+  
+  return (
+    <View style={{ alignItems: 'center' }}>
+      <Svg width={size} height={size}>
+        {/* Grid pentagons */}
+        {[1, 2, 3, 4, 5].map((level) => {
+          const radius = (level / 5) * maxRadius;
+          return (
+            <Polygon
+              key={level}
+              points={getPentagonPoints(radius)}
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.3)"
+              strokeWidth="1"
+            />
+          );
+        })}
+        
+        {/* Radial lines */}
+        {labels.map((_, index) => {
+          const angle = (index * 72 - 90) * (Math.PI / 180);
+          const endX = centerX + maxRadius * Math.cos(angle);
+          const endY = centerY + maxRadius * Math.sin(angle);
+          return (
+            <Line
+              key={index}
+              x1={centerX}
+              y1={centerY}
+              x2={endX}
+              y2={endY}
+              stroke="rgba(255, 255, 255, 0.3)"
+              strokeWidth="1"
+            />
+          );
+        })}
+        
+        {/* Data polygon - filled */}
+        <Polygon
+          points={getDataPoints()}
+          fill="rgba(252, 165, 165, 0.4)"
+          stroke="#fca5a5"
+          strokeWidth="2"
+        />
+        
+        {/* Data points */}
+        {vertexPositions.map((pos, index) => (
+          <Circle
+            key={index}
+            cx={pos.x}
+            cy={pos.y}
+            r="5"
+            fill="white"
+            stroke="#fca5a5"
+            strokeWidth="2"
+          />
+        ))}
+        
+        {/* Labels */}
+        {labels.map((label, index) => {
+          const pos = getLabelPosition(index);
+          return (
+            <SvgText
+              key={label}
+              x={pos.x}
+              y={pos.y}
+              fill="white"
+              fontSize="12"
+              fontWeight="500"
+              textAnchor="middle"
+            >
+              {label}
+            </SvgText>
+          );
+        })}
+      </Svg>
+    </View>
+  );
+};
+
 export default function App() {
   const [view, setView] = useState('home');
   const [uploadedImage, setUploadedImage] = useState(null);
@@ -24,6 +171,7 @@ export default function App() {
   const [myCollection, setMyCollection] = useState([]);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [selectedWine, setSelectedWine] = useState(null);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -128,7 +276,7 @@ export default function App() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 0.8,
     });
 
@@ -147,7 +295,7 @@ export default function App() {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 0.8,
     });
 
@@ -204,7 +352,13 @@ export default function App() {
           sweetness: franksNote.sweetness || 3,
           tannins: franksNote.tannins || 3,
           fruitiness: franksNote.fruitiness || 3,
-        } : null
+        } : (aiResult.flavorProfile || {
+          potency: 3,
+          acidity: 3,
+          sweetness: 3,
+          tannins: 3,
+          fruitiness: 3,
+        })
       };
       
       setWineResult(finalResult);
@@ -236,6 +390,13 @@ export default function App() {
             varietal: wineResult.varietal,
             region: wineResult.region,
             vintage: wineResult.vintage,
+            rating: wineResult.rating,
+            notes: wineResult.notes,
+            potency: wineResult.flavorProfile?.potency || 3,
+            acidity: wineResult.flavorProfile?.acidity || 3,
+            sweetness: wineResult.flavorProfile?.sweetness || 3,
+            tannins: wineResult.flavorProfile?.tannins || 3,
+            fruitiness: wineResult.flavorProfile?.fruitiness || 3,
           }
         ]);
 
@@ -264,22 +425,12 @@ export default function App() {
     }
   };
 
-  // Component to render rating dots
-  const RatingDots = ({ rating, maxRating = 5 }) => {
-    return (
-      <View style={styles.ratingDotsContainer}>
-        {[...Array(maxRating)].map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.ratingDot,
-              index < rating ? styles.ratingDotFilled : styles.ratingDotEmpty
-            ]}
-          />
-        ))}
-      </View>
-    );
+  const viewWineDetails = (wine) => {
+    setSelectedWine(wine);
+    setView('wineDetail');
   };
+
+  
 
   if (loading) {
     return (
@@ -351,7 +502,7 @@ export default function App() {
             style={styles.backButton}
             onPress={() => setView('home')}
           >
-            <Text style={styles.backButtonText}>← Back</Text>
+            <Text style={styles.backButtonText}>← Back</Text>
           </TouchableOpacity>
 
           {uploadedImage && (
@@ -385,79 +536,13 @@ export default function App() {
                   <Text style={styles.detailLabel}>Rating:</Text> {wineResult.rating}
                 </Text>
               </View>
-
-              {/* Características Generales Table */}
               {wineResult.flavorProfile && (
-                <View style={styles.characteristicsCard}>
-                  <Text style={styles.characteristicsTitle}>Características Generales</Text>
-                  
-                  {/* Pentagon Radar Chart */}
-                  <View style={styles.radarChartContainer}>
-                    <RadarChart
-                      data={{
-                        labels: ['Potente', 'Acidez', 'Dulzura', 'Taninos', 'Afrutado'],
-                        datasets: [{
-                          data: [
-                            wineResult.flavorProfile.potency,
-                            wineResult.flavorProfile.acidity,
-                            wineResult.flavorProfile.sweetness,
-                            wineResult.flavorProfile.tannins,
-                            wineResult.flavorProfile.fruitiness,
-                          ]
-                        }]
-                      }}
-                      width={screenWidth - 100}
-                      height={200}
-                      chartConfig={{
-                        backgroundColor: '#1e293b',
-                        backgroundGradientFrom: '#1e293b',
-                        backgroundGradientTo: '#334155',
-                        decimalPlaces: 0,
-                        color: (opacity = 1) => `rgba(167, 139, 250, ${opacity})`,
-                        labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-                        style: {
-                          borderRadius: 16
-                        },
-                        propsForDots: {
-                          r: '4',
-                          strokeWidth: '2',
-                          stroke: '#a78bfa'
-                        }
-                      }}
-                      style={{
-                        marginVertical: 8,
-                        borderRadius: 16
-                      }}
-                    />
-                  </View>
-
-                  {/* Rating Dots Table */}
-                  <View style={styles.ratingTable}>
-                    <View style={styles.ratingRow}>
-                      <Text style={styles.ratingLabel}>Potente</Text>
-                      <RatingDots rating={wineResult.flavorProfile.potency} />
-                    </View>
-                    
-                    <View style={styles.ratingRow}>
-                      <Text style={styles.ratingLabel}>Acidez</Text>
-                      <RatingDots rating={wineResult.flavorProfile.acidity} />
-                    </View>
-                    
-                    <View style={styles.ratingRow}>
-                      <Text style={styles.ratingLabel}>Dulzura</Text>
-                      <RatingDots rating={wineResult.flavorProfile.sweetness} />
-                    </View>
-                    
-                    <View style={styles.ratingRow}>
-                      <Text style={styles.ratingLabel}>Taninos</Text>
-                      <RatingDots rating={wineResult.flavorProfile.tannins} />
-                    </View>
-                    
-                    <View style={styles.ratingRow}>
-                      <Text style={styles.ratingLabel}>Afrutado</Text>
-                      <RatingDots rating={wineResult.flavorProfile.fruitiness} />
-                    </View>
-                  </View>
+                <View style={styles.chartCard}>
+                  <Text style={styles.chartTitle}>Flavor Profile</Text>
+                  <CustomRadarChart 
+                    data={wineResult.flavorProfile} 
+                    size={Math.min(screenWidth - 80, 280)}
+                  />
                 </View>
               )}
 
@@ -490,6 +575,71 @@ export default function App() {
     );
   }
 
+  if (view === 'wineDetail' && selectedWine) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => setView('collection')}
+          >
+            <Text style={styles.backButtonText}>← Back to Collection</Text>
+          </TouchableOpacity>
+
+          <View style={styles.resultCard}>
+            <Text style={styles.wineName}>{selectedWine.wine_name}</Text>
+            
+            <View style={styles.wineDetails}>
+              <Text style={styles.detailText}>
+                <Text style={styles.detailLabel}>Varietal:</Text> {selectedWine.varietal}
+              </Text>
+              <Text style={styles.detailText}>
+                <Text style={styles.detailLabel}>Region:</Text> {selectedWine.region}
+              </Text>
+              <Text style={styles.detailText}>
+                <Text style={styles.detailLabel}>Vintage:</Text> {selectedWine.vintage}
+              </Text>
+              <Text style={styles.detailText}>
+                <Text style={styles.detailLabel}>Rating:</Text> {selectedWine.rating}
+              </Text>
+            </View>
+
+            {selectedWine.potency && (
+              <View style={styles.chartCard}>
+                <Text style={styles.chartTitle}>Flavor Profile</Text>
+                <CustomRadarChart 
+                  data={{
+                    potency: selectedWine.potency,
+                    acidity: selectedWine.acidity,
+                    sweetness: selectedWine.sweetness,
+                    tannins: selectedWine.tannins,
+                    fruitiness: selectedWine.fruitiness,
+                  }} 
+                  size={Math.min(screenWidth - 80, 280)}
+                />
+              </View>
+            )}
+
+            <View style={styles.notesCard}>
+              <Text style={styles.notesTitle}>Frank's Notes</Text>
+              <Text style={styles.notesText}>{selectedWine.notes}</Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.deleteButtonLarge}
+              onPress={() => {
+                removeFromCollection(selectedWine.id);
+                setView('collection');
+              }}
+            >
+              <Text style={styles.deleteButtonText}>Remove from Collection</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   if (view === 'collection') {
     return (
       <SafeAreaView style={styles.container}>
@@ -498,7 +648,7 @@ export default function App() {
             style={styles.backButton}
             onPress={() => setView('home')}
           >
-            <Text style={styles.backButtonText}>← Back</Text>
+            <Text style={styles.backButtonText}>← Back</Text>
           </TouchableOpacity>
 
           <Text style={styles.collectionTitle}>My Wine Collection</Text>
@@ -512,10 +662,19 @@ export default function App() {
             </View>
           ) : (
             myCollection.map((wine) => (
-              <View key={wine.id} style={styles.collectionItem}>
+              <TouchableOpacity 
+                key={wine.id} 
+                style={styles.collectionItem}
+                onPress={() => viewWineDetails(wine)}
+              >
                 <View style={styles.collectionItemHeader}>
                   <Text style={styles.collectionItemName}>{wine.wine_name}</Text>
-                  <TouchableOpacity onPress={() => removeFromCollection(wine.id)}>
+                  <TouchableOpacity 
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      removeFromCollection(wine.id);
+                    }}
+                  >
                     <Text style={styles.deleteButton}>✕</Text>
                   </TouchableOpacity>
                 </View>
@@ -528,7 +687,7 @@ export default function App() {
                 <Text style={styles.collectionItemDate}>
                   Added: {new Date(wine.date_added).toLocaleDateString()}
                 </Text>
-              </View>
+              </TouchableOpacity>
             ))
           )}
         </ScrollView>
@@ -560,7 +719,7 @@ export default function App() {
             style={styles.actionCard}
             onPress={takePhoto}
           >
-            <Text style={styles.actionIcon}>📷</Text>
+            <Text style={styles.actionIcon}>ðŸ“·</Text>
             <Text style={styles.actionTitle}>Take Photo</Text>
             <Text style={styles.actionSubtitle}>Snap a picture of your wine</Text>
           </TouchableOpacity>
@@ -569,7 +728,7 @@ export default function App() {
             style={styles.actionCard}
             onPress={pickImage}
           >
-            <Text style={styles.actionIcon}>📤</Text>
+            <Text style={styles.actionIcon}>ðŸ“¤</Text>
             <Text style={styles.actionTitle}>Upload Photo</Text>
             <Text style={styles.actionSubtitle}>Choose from your gallery</Text>
           </TouchableOpacity>
@@ -578,7 +737,7 @@ export default function App() {
             style={[styles.actionCard, styles.collectionCard]}
             onPress={() => setView('collection')}
           >
-            <Text style={styles.actionIcon}>📚</Text>
+            <Text style={styles.actionIcon}>ðŸ“š</Text>
             <Text style={[styles.actionTitle, styles.collectionText]}>My Collection</Text>
             <Text style={[styles.actionSubtitle, styles.collectionText]}>
               {myCollection.length} wines saved
@@ -854,6 +1013,18 @@ const styles = StyleSheet.create({
     color: '#dc2626',
     padding: 5,
   },
+  deleteButtonLarge: {
+    backgroundColor: '#dc2626',
+    borderRadius: 8,
+    padding: 15,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  deleteButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   collectionItemDetails: {
     fontSize: 14,
     color: '#991b1b',
@@ -868,59 +1039,104 @@ const styles = StyleSheet.create({
     color: '#b91c1c',
     marginTop: 5,
   },
-  // New styles for characteristics table
-  characteristicsCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 15,
-  },
-  characteristicsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: 'white',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  radarChartContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  ratingTable: {
-    backgroundColor: '#1e293b',
-    borderRadius: 8,
-    padding: 10,
-  },
-  ratingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
-  },
-  ratingLabel: {
-    fontSize: 16,
-    color: 'white',
-    fontWeight: '500',
-    flex: 1,
-  },
-  ratingDotsContainer: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  ratingDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
-  },
-  ratingDotFilled: {
-    backgroundColor: '#ec4899',
-    borderColor: '#ec4899',
-  },
-  ratingDotEmpty: {
-    backgroundColor: 'transparent',
-    borderColor: '#64748b',
-  },
+
+  chartCard: {
+  backgroundColor: '#7f1d1d',
+  borderRadius: 12,
+  padding: 15,
+  marginBottom: 15,
+  alignItems: 'center',
+},
+chartTitle: {
+  fontSize: 18,
+  fontWeight: '600',
+  color: 'white',
+  marginBottom: 10,
+},
+flavorProfileTable: {
+  width: '100%',
+},
+flavorRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingVertical: 8,
+  borderBottomWidth: 1,
+  borderBottomColor: 'rgba(255, 255, 255, 0.2)',
+},
+flavorLabel: {
+  fontSize: 16,
+  color: 'white',
+  fontWeight: '500',
+  flex: 1,
+},
+ratingContainer: {
+  flexDirection: 'row',
+  alignItems: 'center',
+},
+radarContainer: {
+  alignItems: 'center',
+  justifyContent: 'center',
+  position: 'relative',
+},
+radarGrid: {
+  position: 'absolute',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '100%',
+  height: '100%',
+},
+gridPentagon: {
+  position: 'absolute',
+  borderWidth: 1,
+  alignSelf: 'center',
+  transform: [{ rotate: '36deg' }],
+},
+radialLine: {
+  position: 'absolute',
+  height: 1,
+  backgroundColor: 'rgba(255, 255, 255, 0.3)',
+  transformOrigin: '0 0',
+},
+dataPolygonContainer: {
+  position: 'absolute',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '100%',
+  height: '100%',
+},
+filledPentagon: {
+  position: 'absolute',
+  backgroundColor: 'rgba(252, 165, 165, 0.3)',
+  borderColor: '#fca5a5',
+  borderWidth: 2,
+  alignSelf: 'center',
+  transform: [{ rotate: '36deg' }],
+},
+dataLayer: {
+  position: 'absolute',
+  width: '100%',
+  height: '100%',
+},
+dataPoint: {
+  position: 'absolute',
+  width: 12,
+  height: 12,
+  borderRadius: 6,
+  borderWidth: 2,
+  borderColor: '#fca5a5',
+},
+labelLayer: {
+  position: 'absolute',
+  width: '100%',
+  height: '100%',
+},
+radarLabel: {
+  position: 'absolute',
+  color: 'white',
+  fontSize: 12,
+  fontWeight: '500',
+  textAlign: 'center',
+  width: 60,
+},
 });
